@@ -13,9 +13,18 @@ pub const RawVersion = struct {
     }
 };
 
-// Two replicas that pick the same id diverge silently, so ids come from the CSPRNG.
-pub fn randomId() Id {
-    return std.crypto.random.int(Id);
+// Two replicas that pick the same id diverge silently, so the entropy comes
+// from outside the process and a failure to get it is an error, not a fallback.
+pub fn randomId(io: std.Io) !Id {
+    var bytes: [@sizeOf(Id)]u8 = undefined;
+    try io.randomSecure(&bytes);
+    return std.mem.readInt(Id, &bytes, .little);
+}
+
+test "ids do not repeat" {
+    const a = try randomId(std.testing.io);
+    const b = try randomId(std.testing.io);
+    try std.testing.expect(a != b);
 }
 
 test "order is total across agents and seqs" {

@@ -24,6 +24,11 @@ pub const mapCursor = anchor.map;
 pub const checkout = branch.checkout;
 pub const applyPatch = branch.apply;
 
+// One level of refAllDecls stops at the module structs, and a public function
+// nobody calls never gets compiled.
 test {
-    std.testing.refAllDecls(@This());
+    inline for (@typeInfo(@This()).@"struct".decls) |decl| {
+        const field = @field(@This(), decl.name);
+        if (@TypeOf(field) == type and @typeInfo(field) == .@"struct") std.testing.refAllDecls(field);
+    }
 }
