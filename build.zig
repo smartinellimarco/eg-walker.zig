@@ -4,17 +4,23 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const rope = b.dependency("rope", .{ .target = target, .optimize = optimize });
+
     const mod = b.addModule("egwalker", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{.{ .name = "rope", .module = rope.module("rope") }},
     });
 
     const script_mod = b.createModule(.{
         .root_source_file = b.path("fuzz/script.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "egwalker", .module = mod }},
+        .imports = &.{
+            .{ .name = "egwalker", .module = mod },
+            .{ .name = "rope", .module = rope.module("rope") },
+        },
     });
 
     const test_step = b.step("test", "Run tests");

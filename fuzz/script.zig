@@ -1,5 +1,6 @@
 const std = @import("std");
 const egwalker = @import("egwalker");
+const rope = @import("rope");
 
 const alphabet = "abcdefgáé→";
 
@@ -27,7 +28,7 @@ const Peer = struct {
     len: u32 = 0,
     // The incremental path the editor uses: a branch kept in step with patches.
     branch: egwalker.Branch,
-    doc: egwalker.Text,
+    doc: rope.Text,
 
     fn deinit(self: *Peer) void {
         self.oplog.deinit();
@@ -38,7 +39,7 @@ const Peer = struct {
     fn catchUp(self: *Peer) !void {
         var patch = try self.branch.merge(&self.oplog);
         defer patch.deinit();
-        try egwalker.applyPatch(self.doc.sink(), &patch);
+        try egwalker.applyPatch(egwalker.sink.of(&self.doc), &patch);
     }
 };
 
@@ -114,7 +115,7 @@ pub fn run(gpa: std.mem.Allocator, cmds: []const Cmd, opts: Options) !void {
         if (!std.mem.eql(u8, expected, text)) return error.Diverged;
 
         try peer.catchUp();
-        const incremental = try peer.doc.toUtf8(gpa);
+        const incremental = try peer.doc.toBytes(gpa);
         defer gpa.free(incremental);
         if (!std.mem.eql(u8, expected, incremental)) return error.IncrementalDiverged;
     }
@@ -196,11 +197,11 @@ fn replay(gpa: std.mem.Allocator, oplog: *const egwalker.OpLog, opts: Options) !
     var patch = try branch.merge(oplog);
     defer patch.deinit();
 
-    var doc: egwalker.Text = try .init(gpa);
+    var doc: rope.Text = try .init(gpa);
     defer doc.deinit();
-    try egwalker.applyPatch(doc.sink(), &patch);
+    try egwalker.applyPatch(egwalker.sink.of(&doc), &patch);
 
-    return doc.toUtf8(gpa);
+    return doc.toBytes(gpa);
 }
 
 fn syncOverWire(gpa: std.mem.Allocator, dest: *Peer, src: *const Peer) !void {

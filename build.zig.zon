@@ -3,6 +3,9 @@
     .version = "0.0.0",
     .fingerprint = 0x92be83d14e6fcfa2,
     .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .rope = .{ .path = "../rope.zig" },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",

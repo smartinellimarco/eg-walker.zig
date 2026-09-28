@@ -3,7 +3,7 @@ const causal_graph = @import("causal_graph.zig");
 const edit_context = @import("edit_context.zig");
 const oplog_mod = @import("oplog.zig");
 const sink_mod = @import("sink.zig");
-const text_mod = @import("text.zig");
+const text_mod = @import("rope");
 const walker = @import("walker.zig");
 
 const Lv = causal_graph.Lv;
@@ -212,8 +212,8 @@ pub fn checkout(gpa: std.mem.Allocator, oplog: *const oplog_mod.OpLog) ![]u8 {
     var doc: text_mod.Text = try .init(gpa);
     defer doc.deinit();
 
-    try apply(doc.sink(), &patch);
-    return doc.toUtf8(gpa);
+    try apply(sink_mod.of(&doc), &patch);
+    return doc.toBytes(gpa);
 }
 
 const testing = std.testing;
@@ -297,7 +297,7 @@ test "branch merges incrementally and emits transformed ops" {
 
     var first = try branch.merge(&a);
     defer first.deinit();
-    try apply(doc.sink(), &first);
+    try apply(sink_mod.of(&doc), &first);
     try testing.expectEqual(@as(u32, 2), doc.len());
 
     try b.mergeFrom(&a);
@@ -307,9 +307,9 @@ test "branch merges incrementally and emits transformed ops" {
     var second = try branch.merge(&a);
     defer second.deinit();
     try testing.expectEqual(@as(usize, 1), second.len());
-    try apply(doc.sink(), &second);
+    try apply(sink_mod.of(&doc), &second);
 
-    const out = try doc.toUtf8(testing.allocator);
+    const out = try doc.toBytes(testing.allocator);
     defer testing.allocator.free(out);
 
     try testing.expectEqualStrings("oh hi", out);
@@ -399,15 +399,15 @@ test "a branch that already merged an entry checks the parents of the next one" 
 
     var first = try branch.merge(&a);
     defer first.deinit();
-    try apply(doc.sink(), &first);
+    try apply(sink_mod.of(&doc), &first);
 
     try a.mergeFrom(&b);
 
     var second = try branch.merge(&a);
     defer second.deinit();
-    try apply(doc.sink(), &second);
+    try apply(sink_mod.of(&doc), &second);
 
-    const out = try doc.toUtf8(testing.allocator);
+    const out = try doc.toBytes(testing.allocator);
     defer testing.allocator.free(out);
 
     const whole = try checkout(testing.allocator, &a);
@@ -522,9 +522,9 @@ fn checkoutInSteps(gpa: std.mem.Allocator, oplog: *const oplog_mod.OpLog) ![]u8 
 
     var doc: text_mod.Text = try .init(gpa);
     defer doc.deinit();
-    try apply(doc.sink(), &patch);
+    try apply(sink_mod.of(&doc), &patch);
 
-    return doc.toUtf8(gpa);
+    return doc.toBytes(gpa);
 }
 
 test "a patch lands in any buffer, not only the included rope" {

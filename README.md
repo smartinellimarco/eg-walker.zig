@@ -2,8 +2,9 @@
 
 Eg-walker ([arXiv:2409.14252](https://arxiv.org/abs/2409.14252)) for Zig: an
 event graph plus a transient CRDT that merges concurrent text edits and hands
-back index based operations. Positions are unicode character offsets; the
-buffer is the caller's, and a rope is included for when there is none.
+back index based operations. Positions are unicode character offsets, and the
+buffer is the caller's: hand it an `egwalker.Sink` and the patch lands wherever
+you keep the text.
 
 ## Install
 
@@ -77,14 +78,14 @@ try remote.applyWire(bytes);
 `OpLog.save`/`load` put a whole history on disk. Carrying the bytes is the
 caller's job: there is no networking here.
 
-Text can live in the included rope, which indexes by character and by byte:
+There is no text type here. [rope.zig](https://github.com/smartinellimarco/rope.zig)
+is one that fits, and `egwalker.sink.of` wraps it:
 
 ```zig
-var doc: egwalker.Text = try .init(gpa);
+var doc: rope.Text = try .init(gpa);
 defer doc.deinit();
 
-try doc.insertUtf8(0, "hello");
-doc.delete(0, 1);
+try egwalker.applyPatch(egwalker.sink.of(&doc), &patch);
 ```
 
 ## Test
