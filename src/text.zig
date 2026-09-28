@@ -140,28 +140,48 @@ pub const Text = struct {
             }
         }
 
-        var remaining = pos - base;
+        const walked = descend(node, pos - base);
 
-        while (node.level > 0) {
-            var child: u16 = 0;
-            while (child + 1 < node.len and remaining > node.counts[child].chars) : (child += 1) {
-                remaining -= node.counts[child].chars;
+        self.cursor_leaf = walked.leaf;
+        self.cursor_leaf_pos = pos - walked.remaining;
+
+        return .{ .leaf = walked.leaf, .offset = offsetIn(walked.leaf, walked.remaining) };
+    }
+
+    /// Copies the characters in [from, to). Takes a const pointer on purpose:
+    /// reading must not move a gap or the cached chunk, or every render would
+    /// cost the next edit its head start.
+    pub fn slice(self: *const Text, gpa: std.mem.Allocator, from: u32, to: u32) ![]u8 {
+        var out: std.ArrayList(u8) = .empty;
+        errdefer out.deinit(gpa);
+        try out.ensureTotalCapacity(gpa, to - from);
+
+        const walked = descend(self.root, from);
+        var skip = offsetIn(walked.leaf, walked.remaining);
+        var remaining = to - from;
+
+        var leaf: ?*Node = walked.leaf;
+        while (leaf) |node| : (leaf = nextLeaf(node)) {
+            if (remaining == 0) break;
+
+            // The gap splits a chunk in two, and neither half is moved to read.
+            for ([_][]u8{ node.head(), node.tail() }) |piece| {
+                if (skip >= piece.len) {
+                    skip -= @intCast(piece.len);
+                    continue;
+                }
+
+                const rest = piece[skip..];
+                skip = 0;
+
+                const take = bytesOf(rest, remaining);
+                out.appendSliceAssumeCapacity(rest[0..take]);
+                remaining -= charsIn(rest[0..take]);
+                if (remaining == 0) break;
             }
-            node = node.children[child];
         }
 
-        self.cursor_leaf = node;
-        self.cursor_leaf_pos = pos - remaining;
-
-        // An ascii chunk needs no counting: the offset is the position.
-        if (node.chars == node.bytes) return .{ .leaf = node, .offset = remaining };
-
-        const in_head = charsIn(node.head());
-        if (remaining <= in_head) return .{ .leaf = node, .offset = bytesOf(node.head(), remaining) };
-        return .{
-            .leaf = node,
-            .offset = @as(u32, node.gap_start) + bytesOf(node.tail(), remaining - in_head),
-        };
+        return out.toOwnedSlice(gpa);
     }
 
     fn fixCounts(self: *Text, leaf: *Node, chars: i64, bytes: i64) void {
@@ -353,6 +373,31 @@ fn fitting(text: []const u8, room: u32) u32 {
     var at = room;
     while (at > 0 and text[at] & 0xc0 == 0x80) at -= 1;
     return at;
+}
+
+fn descend(from: *Node, remaining: u32) struct { leaf: *Node, remaining: u32 } {
+    var node = from;
+    var left = remaining;
+
+    while (node.level > 0) {
+        var child: u16 = 0;
+        while (child + 1 < node.len and left > node.counts[child].chars) : (child += 1) {
+            left -= node.counts[child].chars;
+        }
+        node = node.children[child];
+    }
+
+    return .{ .leaf = node, .remaining = left };
+}
+
+/// Byte offset of the character at `remaining` inside a chunk, gap included.
+fn offsetIn(leaf: *Node, remaining: u32) u32 {
+    // An ascii chunk needs no counting: the offset is the position.
+    if (leaf.chars == leaf.bytes) return remaining;
+
+    const in_head = charsIn(leaf.head());
+    if (remaining <= in_head) return bytesOf(leaf.head(), remaining);
+    return @as(u32, leaf.gap_start) + bytesOf(leaf.tail(), remaining - in_head);
 }
 
 fn firstLeaf(node: *Node) *Node {
@@ -659,4 +704,78 @@ test "a jump backwards lands where a plain descent would" {
         defer gpa.free(out);
         try testing.expectEqualStrings(model.items, out);
     }
+}
+
+test "a slice reads back a range of characters" {
+    const gpa = testing.allocator;
+
+    var text = try Text.init(gpa);
+    defer text.deinit();
+    try text.insertUtf8(0, "hello world");
+
+    const middle = try text.slice(gpa, 6, 11);
+    defer gpa.free(middle);
+    try testing.expectEqualStrings("world", middle);
+
+    const whole = try text.slice(gpa, 0, text.len());
+    defer gpa.free(whole);
+    try testing.expectEqualStrings("hello world", whole);
+
+    const empty = try text.slice(gpa, 4, 4);
+    defer gpa.free(empty);
+    try testing.expectEqualStrings("", empty);
+}
+
+test "a slice cuts between characters, never inside one" {
+    const gpa = testing.allocator;
+
+    var text = try Text.init(gpa);
+    defer text.deinit();
+    try text.insertUtf8(0, "áéíóú→");
+
+    const cut = try text.slice(gpa, 2, 5);
+    defer gpa.free(cut);
+    try testing.expectEqualStrings("íóú", cut);
+
+    const arrow = try text.slice(gpa, 5, 6);
+    defer gpa.free(arrow);
+    try testing.expectEqualStrings("→", arrow);
+}
+
+test "a slice spans chunks and gaps" {
+    const gpa = testing.allocator;
+
+    var text = try Text.init(gpa);
+    defer text.deinit();
+
+    var i: u32 = 0;
+    while (i < 500) : (i += 1) try text.insertUtf8(text.len(), "abcdefghij");
+
+    // Edits in the middle leave gaps parked in the chunks they touched.
+    text.delete(1200, 100);
+    try text.insertUtf8(800, "ZZZ");
+
+    const model = try text.toUtf8(gpa);
+    defer gpa.free(model);
+
+    const part = try text.slice(gpa, 700, 1500);
+    defer gpa.free(part);
+    try testing.expectEqualStrings(model[700..1500], part);
+}
+
+test "reading does not move the cached chunk" {
+    const gpa = testing.allocator;
+
+    var text = try Text.init(gpa);
+    defer text.deinit();
+
+    var i: u32 = 0;
+    while (i < 200) : (i += 1) try text.insertUtf8(text.len(), "abcdefghij");
+
+    const at_the_end = text.cursor_leaf_pos;
+
+    const far = try text.slice(gpa, 0, 50);
+    defer gpa.free(far);
+
+    try testing.expectEqual(at_the_end, text.cursor_leaf_pos);
 }
