@@ -39,7 +39,7 @@ const Peer = struct {
     fn catchUp(self: *Peer) !void {
         var patch = try self.branch.merge(&self.oplog);
         defer patch.deinit();
-        try egwalker.applyPatch(egwalker.sink.of(&self.doc), &patch);
+        try egwalker.applyPatch(sinkOf(&self.doc), &patch);
     }
 };
 
@@ -190,6 +190,19 @@ pub fn parse(gpa: std.mem.Allocator, text: []const u8) ![]Cmd {
     return cmds.toOwnedSlice(gpa);
 }
 
+fn sinkOf(text: *rope.Text) egwalker.Sink {
+    const glue = struct {
+        fn insert(ptr: *anyopaque, pos: u32, text_: []const u8) egwalker.sink.Error!void {
+            return @as(*rope.Text, @ptrCast(@alignCast(ptr))).insert(pos, text_);
+        }
+        fn delete(ptr: *anyopaque, pos: u32, count: u32) void {
+            @as(*rope.Text, @ptrCast(@alignCast(ptr))).delete(pos, count);
+        }
+    };
+
+    return .{ .ptr = text, .vtable = &.{ .insert = glue.insert, .delete = glue.delete } };
+}
+
 fn replay(gpa: std.mem.Allocator, oplog: *const egwalker.OpLog, opts: Options) ![]u8 {
     var branch: egwalker.Branch = .{ .gpa = gpa, .checkpoint_interval = opts.checkpoints, .state_limit = opts.state_limit };
     defer branch.deinit();
@@ -199,7 +212,7 @@ fn replay(gpa: std.mem.Allocator, oplog: *const egwalker.OpLog, opts: Options) !
 
     var doc: rope.Text = try .init(gpa);
     defer doc.deinit();
-    try egwalker.applyPatch(egwalker.sink.of(&doc), &patch);
+    try egwalker.applyPatch(sinkOf(&doc), &patch);
 
     return doc.toBytes(gpa);
 }

@@ -4,7 +4,7 @@
     .fingerprint = 0x92be83d14e6fcfa2,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        .rope = .{ .path = "../rope.zig" },
+        .rope = .{ .path = "../rope.zig", .lazy = true },
     },
     .paths = .{
         "build.zig",

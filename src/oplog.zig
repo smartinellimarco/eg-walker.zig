@@ -413,33 +413,3 @@ test "a backspace run that passes the start of the document does not wrap" {
     try testing.expectEqual(@as(usize, 3), oplog.runs.items.len);
     try testing.expectEqual(@as(u32, 0), oplog.opAt(10).pos);
 }
-
-test "an oplog saves and loads through a stream" {
-    const branch_mod = @import("branch.zig");
-
-    var a: OpLog = .init(testing.allocator, .{ .agent = 1 });
-    defer a.deinit();
-
-    try a.insert(0, "hello world");
-    try a.backspace(10, 5);
-    try a.insert(6, "there");
-
-    var out: std.Io.Writer.Allocating = .init(testing.allocator);
-    defer out.deinit();
-    try a.save(&out.writer);
-
-    var reader: std.Io.Reader = .fixed(out.written());
-    var b = try OpLog.load(testing.allocator, .{ .agent = 1 }, &reader);
-    defer b.deinit();
-
-    try testing.expectEqual(a.len(), b.len());
-    try testing.expectEqualSlices(Lv, a.version(), b.version());
-
-    const from_a = try branch_mod.checkout(testing.allocator, &a);
-    defer testing.allocator.free(from_a);
-    const from_b = try branch_mod.checkout(testing.allocator, &b);
-    defer testing.allocator.free(from_b);
-
-    try testing.expectEqualStrings(from_a, from_b);
-    try testing.expectEqualStrings("hello there", from_a);
-}

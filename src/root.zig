@@ -21,7 +21,6 @@ pub const Branch = branch.Branch;
 pub const Sink = sink.Sink;
 pub const Bias = anchor.Bias;
 pub const mapCursor = anchor.map;
-pub const checkout = branch.checkout;
 pub const applyPatch = branch.apply;
 
 // One level of refAllDecls stops at the module structs, and a public function

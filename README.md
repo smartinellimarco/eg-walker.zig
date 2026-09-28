@@ -2,9 +2,9 @@
 
 Eg-walker ([arXiv:2409.14252](https://arxiv.org/abs/2409.14252)) for Zig: an
 event graph plus a transient CRDT that merges concurrent text edits and hands
-back index based operations. Positions are unicode character offsets, and the
-buffer is the caller's: hand it an `egwalker.Sink` and the patch lands wherever
-you keep the text.
+back index based operations. It holds no text: hand it an `egwalker.Sink` and
+the patch lands wherever you keep the document. [rope.zig](https://github.com/smartinellimarco/rope.zig)
+is one that fits.
 
 ## Install
 
@@ -21,41 +21,65 @@ exe.root_module.addImport("egwalker", egwalker.module("egwalker"));
 
 ## Use
 
-One replica typing. `checkout` replays the whole history into a string:
+Edits go into the history and come back out as operations for your buffer, so
+local and remote edits travel the same path. Whatever holds the text becomes an
+`egwalker.Sink`:
 
 ```zig
 const egwalker = @import("egwalker");
 
-var oplog: egwalker.OpLog = .init(gpa, .{ .agent = 1 });
+const Buffer = struct {
+    text: MyRope,
+
+    fn sink(self: *Buffer) egwalker.Sink {
+        const glue = struct {
+            fn insert(ptr: *anyopaque, pos: u32, text: []const u8) egwalker.sink.Error!void {
+                const buffer: *Buffer = @ptrCast(@alignCast(ptr));
+                return buffer.text.insert(pos, text);
+            }
+            fn delete(ptr: *anyopaque, pos: u32, count: u32) void {
+                const buffer: *Buffer = @ptrCast(@alignCast(ptr));
+                buffer.text.delete(pos, count);
+            }
+        };
+
+        return .{ .ptr = self, .vtable = &.{ .insert = glue.insert, .delete = glue.delete } };
+    }
+};
+```
+
+Positions are unicode character offsets, in both directions.
+
+```zig
+var oplog: egwalker.OpLog = .init(gpa, .{ .agent = try egwalker.agent.randomId(io) });
 defer oplog.deinit();
+
+var branch: egwalker.Branch = .init(gpa);
+defer branch.deinit();
 
 try oplog.insert(0, "hello world");
 try oplog.delete(5, 6);
 
-const text = try egwalker.checkout(gpa, &oplog);
-defer gpa.free(text);        // "hello"
-```
-
-An editor keeps a `Branch` instead and merges what arrived since last time.
-Every merge returns the operations to apply to the buffer it already has,
-already transformed against everything concurrent:
-
-```zig
-var branch: egwalker.Branch = .init(gpa);
-defer branch.deinit();
-
 var patch = try branch.merge(&oplog);
 defer patch.deinit();
 
-while (patch.next()) |op| switch (op) {
-    .insert => |ins| try buffer.insert(ins.pos, ins.text),
-    .delete => |del| buffer.delete(del.pos, del.len),
-};
+try egwalker.applyPatch(buffer.sink(), &patch);   // "hello"
+```
 
-// Or hand the patch an `egwalker.Sink` and let it do that loop for any buffer.
+Every merge returns only what is new, already transformed against everything
+concurrent, and cursors ride along instead of being recomputed:
 
-// Cursors move with the patch instead of being recomputed.
+```zig
 cursor = egwalker.mapCursor(cursor, .after, &patch);
+```
+
+Or walk the operations yourself when the buffer needs more than two calls:
+
+```zig
+while (patch.next()) |op| switch (op) {
+    .insert => |ins| ...,
+    .delete => |del| ...,
+};
 ```
 
 Two replicas exchanging changes. The summary says what a replica already has,
@@ -77,16 +101,6 @@ try remote.applyWire(bytes);
 `VersionSummary.encode`/`decode` put that summary on the wire, and
 `OpLog.save`/`load` put a whole history on disk. Carrying the bytes is the
 caller's job: there is no networking here.
-
-There is no text type here. [rope.zig](https://github.com/smartinellimarco/rope.zig)
-is one that fits, and `egwalker.sink.of` wraps it:
-
-```zig
-var doc: rope.Text = try .init(gpa);
-defer doc.deinit();
-
-try egwalker.applyPatch(egwalker.sink.of(&doc), &patch);
-```
 
 ## Test
 
