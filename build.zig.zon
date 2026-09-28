@@ -2,7 +2,7 @@
     .name = .egwalker,
     .version = "0.0.0",
     .fingerprint = 0x92be83d14e6fcfa2,
-    .minimum_zig_version = "0.17.0-dev.2307+392b17125",
+    .minimum_zig_version = "0.16.0",
     .paths = .{
         "build.zig",
         "build.zig.zon",

@@ -122,10 +122,21 @@ pub const Text = struct {
         var node = self.root;
         var base: u32 = 0;
 
+        // Climb out of the last chunk only as far as the position needs, which
+        // for nearby edits is not at all.
         if (self.cursor_leaf) |leaf| {
-            if (pos >= self.cursor_leaf_pos and pos - self.cursor_leaf_pos <= leaf.chars) {
-                node = leaf;
-                base = self.cursor_leaf_pos;
+            var walk = leaf;
+            var walk_base = self.cursor_leaf_pos;
+            while (true) {
+                if (pos >= walk_base and pos - walk_base <= walk.total().chars) {
+                    node = walk;
+                    base = walk_base;
+                    break;
+                }
+
+                const parent = walk.parent orelse break;
+                for (parent.counts[0..walk.parent_idx]) |child| walk_base -= child.chars;
+                walk = parent;
             }
         }
 
@@ -580,4 +591,72 @@ fn cursorBase(leaf: *Node) u32 {
         node = parent;
     }
     return base;
+}
+
+test "a jump backwards lands where a plain descent would" {
+    const gpa = testing.allocator;
+
+    // The shape of a recorded editing session, reduced: jumps of thousands of
+    // characters between chunks, a delete that spans several, and a reinsert of
+    // the same size. Only positions and lengths are kept, the text is filler.
+    const ops = [_]struct { insert: bool, pos: u32, len: u32 }{
+        .{ .insert = true, .pos = 0, .len = 6003 },
+        .{ .insert = true, .pos = 0, .len = 1 },
+        .{ .insert = true, .pos = 9, .len = 16 },
+        .{ .insert = false, .pos = 9, .len = 16 },
+        .{ .insert = true, .pos = 3025, .len = 13 },
+        .{ .insert = false, .pos = 3032, .len = 6 },
+        .{ .insert = true, .pos = 438, .len = 11 },
+        .{ .insert = true, .pos = 851, .len = 2 },
+        .{ .insert = true, .pos = 941, .len = 53 },
+        .{ .insert = true, .pos = 941, .len = 34 },
+        .{ .insert = false, .pos = 910, .len = 2 },
+        .{ .insert = true, .pos = 3003, .len = 4 },
+        .{ .insert = true, .pos = 2134, .len = 3 },
+        .{ .insert = true, .pos = 2136, .len = 23 },
+        .{ .insert = true, .pos = 4228, .len = 3 },
+        .{ .insert = true, .pos = 4221, .len = 3 },
+        .{ .insert = true, .pos = 4083, .len = 3 },
+        .{ .insert = true, .pos = 4034, .len = 3 },
+        .{ .insert = true, .pos = 4001, .len = 3 },
+        .{ .insert = true, .pos = 3869, .len = 3 },
+        .{ .insert = true, .pos = 3606, .len = 3 },
+        .{ .insert = true, .pos = 2186, .len = 12 },
+        .{ .insert = true, .pos = 2190, .len = 56 },
+        .{ .insert = true, .pos = 2273, .len = 79 },
+        .{ .insert = true, .pos = 1819, .len = 49 },
+        .{ .insert = true, .pos = 2880, .len = 11 },
+        .{ .insert = true, .pos = 2863, .len = 3 },
+        .{ .insert = true, .pos = 2577, .len = 69 },
+        .{ .insert = false, .pos = 2505, .len = 578 },
+        .{ .insert = true, .pos = 2908, .len = 578 },
+        .{ .insert = true, .pos = 3090, .len = 31 },
+        .{ .insert = true, .pos = 4552, .len = 4 },
+        .{ .insert = true, .pos = 3859, .len = 4 },
+    };
+
+    var text = try Text.init(gpa);
+    defer text.deinit();
+
+    var model: std.ArrayList(u8) = .empty;
+    defer model.deinit(gpa);
+
+    const scratch = try gpa.alloc(u8, 6003);
+    defer gpa.free(scratch);
+
+    for (ops, 0..) |op, step| {
+        if (op.insert) {
+            const written = scratch[0..op.len];
+            for (written, 0..) |*byte, at| byte.* = 'a' + @as(u8, @intCast((step * 7 + at) % 26));
+            try text.insertUtf8(op.pos, written);
+            try model.insertSlice(gpa, op.pos, written);
+        } else {
+            text.delete(op.pos, op.len);
+            model.replaceRangeAssumeCapacity(op.pos, op.len, &.{});
+        }
+
+        const out = try text.toUtf8(gpa);
+        defer gpa.free(out);
+        try testing.expectEqualStrings(model.items, out);
+    }
 }
