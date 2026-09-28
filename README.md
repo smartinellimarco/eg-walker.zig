@@ -7,7 +7,9 @@ buffer is the caller's, and a rope is included for when there is none.
 
 ## Install
 
+```zsh
     zig fetch --save git+https://github.com/smartinellimarco/eg-walker.zig
+```
 
 Then in `build.zig`:
 
@@ -48,6 +50,8 @@ while (patch.next()) |op| switch (op) {
     .insert => |ins| try buffer.insert(ins.pos, ins.text),
     .delete => |del| buffer.delete(del.pos, del.len),
 };
+
+// Or hand the patch an `egwalker.Sink` and let it do that loop for any buffer.
 
 // Cursors move with the patch instead of being recomputed.
 cursor = egwalker.mapCursor(cursor, .after, &patch);

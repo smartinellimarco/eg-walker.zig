@@ -2,6 +2,7 @@ const std = @import("std");
 const causal_graph = @import("causal_graph.zig");
 const edit_context = @import("edit_context.zig");
 const oplog_mod = @import("oplog.zig");
+const sink_mod = @import("sink.zig");
 const text_mod = @import("text.zig");
 const walker = @import("walker.zig");
 
@@ -193,10 +194,10 @@ fn sameVersion(a: []const Lv, b: []const Lv) bool {
     return std.mem.eql(Lv, a, b);
 }
 
-pub fn apply(doc: *text_mod.Text, patch: *walker.Patch) !void {
+pub fn apply(doc: sink_mod.Sink, patch: *walker.Patch) sink_mod.Error!void {
     patch.reset();
     while (patch.next()) |op| switch (op) {
-        .insert => |ins| try doc.insertUtf8(ins.pos, ins.text),
+        .insert => |ins| try doc.insert(ins.pos, ins.text),
         .delete => |del| doc.delete(del.pos, del.len),
     };
 }
@@ -211,7 +212,7 @@ pub fn checkout(gpa: std.mem.Allocator, oplog: *const oplog_mod.OpLog) ![]u8 {
     var doc: text_mod.Text = try .init(gpa);
     defer doc.deinit();
 
-    try apply(&doc, &patch);
+    try apply(doc.sink(), &patch);
     return doc.toUtf8(gpa);
 }
 
@@ -296,7 +297,7 @@ test "branch merges incrementally and emits transformed ops" {
 
     var first = try branch.merge(&a);
     defer first.deinit();
-    try apply(&doc, &first);
+    try apply(doc.sink(), &first);
     try testing.expectEqual(@as(u32, 2), doc.len());
 
     try b.mergeFrom(&a);
@@ -306,7 +307,7 @@ test "branch merges incrementally and emits transformed ops" {
     var second = try branch.merge(&a);
     defer second.deinit();
     try testing.expectEqual(@as(usize, 1), second.len());
-    try apply(&doc, &second);
+    try apply(doc.sink(), &second);
 
     const out = try doc.toUtf8(testing.allocator);
     defer testing.allocator.free(out);
@@ -398,13 +399,13 @@ test "a branch that already merged an entry checks the parents of the next one" 
 
     var first = try branch.merge(&a);
     defer first.deinit();
-    try apply(&doc, &first);
+    try apply(doc.sink(), &first);
 
     try a.mergeFrom(&b);
 
     var second = try branch.merge(&a);
     defer second.deinit();
-    try apply(&doc, &second);
+    try apply(doc.sink(), &second);
 
     const out = try doc.toUtf8(testing.allocator);
     defer testing.allocator.free(out);
@@ -521,7 +522,49 @@ fn checkoutInSteps(gpa: std.mem.Allocator, oplog: *const oplog_mod.OpLog) ![]u8 
 
     var doc: text_mod.Text = try .init(gpa);
     defer doc.deinit();
-    try apply(&doc, &patch);
+    try apply(doc.sink(), &patch);
 
     return doc.toUtf8(gpa);
+}
+
+test "a patch lands in any buffer, not only the included rope" {
+    const gpa = testing.allocator;
+
+    var oplog: oplog_mod.OpLog = .init(gpa, .{ .agent = 1 });
+    defer oplog.deinit();
+
+    try oplog.insert(0, "hello world");
+    try oplog.delete(5, 6);
+    try oplog.insert(5, " there");
+
+    const Plain = struct {
+        items: std.ArrayList(u8) = .empty,
+        gpa: std.mem.Allocator,
+
+        fn insert(ptr: *anyopaque, pos: u32, text: []const u8) sink_mod.Error!void {
+            const self: *@This() = @ptrCast(@alignCast(ptr));
+            try self.items.insertSlice(self.gpa, pos, text);
+        }
+
+        fn delete(ptr: *anyopaque, pos: u32, count: u32) void {
+            const self: *@This() = @ptrCast(@alignCast(ptr));
+            self.items.replaceRangeAssumeCapacity(pos, count, &.{});
+        }
+
+        fn sink(self: *@This()) sink_mod.Sink {
+            return .{ .ptr = self, .vtable = &.{ .insert = @This().insert, .delete = @This().delete } };
+        }
+    };
+
+    var plain: Plain = .{ .gpa = gpa };
+    defer plain.items.deinit(gpa);
+
+    var branch: Branch = .init(gpa);
+    defer branch.deinit();
+
+    var patch = try branch.merge(&oplog);
+    defer patch.deinit();
+
+    try apply(plain.sink(), &patch);
+    try testing.expectEqualStrings("hello there", plain.items.items);
 }

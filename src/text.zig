@@ -1,4 +1,5 @@
 const std = @import("std");
+const sink_mod = @import("sink.zig");
 
 const fanout = 16;
 const chunk = 256;
@@ -31,6 +32,19 @@ pub const Text = struct {
 
     pub fn len(self: Text) u32 {
         return self.root.total().chars;
+    }
+
+    pub fn sink(self: *Text) sink_mod.Sink {
+        const glue = struct {
+            fn insert(ptr: *anyopaque, pos: u32, text: []const u8) sink_mod.Error!void {
+                return @as(*Text, @ptrCast(@alignCast(ptr))).insertUtf8(pos, text);
+            }
+            fn delete(ptr: *anyopaque, pos: u32, count: u32) void {
+                @as(*Text, @ptrCast(@alignCast(ptr))).delete(pos, count);
+            }
+        };
+
+        return .{ .ptr = self, .vtable = &.{ .insert = glue.insert, .delete = glue.delete } };
     }
 
     pub fn insertUtf8(self: *Text, pos: u32, text: []const u8) !void {

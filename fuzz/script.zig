@@ -38,7 +38,7 @@ const Peer = struct {
     fn catchUp(self: *Peer) !void {
         var patch = try self.branch.merge(&self.oplog);
         defer patch.deinit();
-        try egwalker.applyPatch(&self.doc, &patch);
+        try egwalker.applyPatch(self.doc.sink(), &patch);
     }
 };
 
@@ -198,7 +198,7 @@ fn replay(gpa: std.mem.Allocator, oplog: *const egwalker.OpLog, opts: Options) !
 
     var doc: egwalker.Text = try .init(gpa);
     defer doc.deinit();
-    try egwalker.applyPatch(&doc, &patch);
+    try egwalker.applyPatch(doc.sink(), &patch);
 
     return doc.toUtf8(gpa);
 }
