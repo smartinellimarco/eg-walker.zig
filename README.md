@@ -120,7 +120,7 @@ because each one changes what the run covers:
 operations that produced it, ready to paste into a test. A script that hangs
 counts as a divergence.
 
-Zig 0.16.0.
+Zig 0.17.0.
 
 ## Sources
 

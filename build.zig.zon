@@ -2,7 +2,7 @@
     .name = .egwalker,
     .version = "0.0.0",
     .fingerprint = 0x92be83d14e6fcfa2,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .rope = .{ .path = "../rope.zig", .lazy = true },
     },

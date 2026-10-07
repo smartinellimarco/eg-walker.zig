@@ -26,8 +26,8 @@ pub const applyPatch = branch.apply;
 // One level of refAllDecls stops at the module structs, and a public function
 // nobody calls never gets compiled.
 test {
-    inline for (@typeInfo(@This()).@"struct".decls) |decl| {
-        const field = @field(@This(), decl.name);
+    inline for (@typeInfo(@This()).@"struct".decl_names) |name| {
+        const field = @field(@This(), name);
         if (@TypeOf(field) == type and @typeInfo(field) == .@"struct") std.testing.refAllDecls(field);
     }
 }

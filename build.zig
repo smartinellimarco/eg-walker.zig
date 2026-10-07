@@ -62,6 +62,6 @@ pub fn build(b: *std.Build) void {
 
     const fuzz_step = b.step("fuzz", "Search for a script of concurrent edits that diverges");
     const run_fuzz = b.addRunArtifact(fuzz);
-    if (b.args) |args| run_fuzz.addArgs(args);
+    run_fuzz.addPassthruArgs();
     fuzz_step.dependOn(&run_fuzz.step);
 }
