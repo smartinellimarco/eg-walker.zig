@@ -4,7 +4,11 @@
     .fingerprint = 0x92be83d14e6fcfa2,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .rope = .{ .path = "../rope.zig", .lazy = true },
+        .rope = .{
+            .url = "git+https://github.com/smartinellimarco/rope.zig#de03598691b5ab9f0fbae991fa382f9441c22a87",
+            .hash = "rope-0.0.0-HUqHwJhnAAAWB3D9Em65D4olYzTirytNLgKzavmo4ko0",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",
