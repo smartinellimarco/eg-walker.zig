@@ -2,7 +2,7 @@ const std = @import("std");
 const egwalker = @import("egwalker");
 const rope = @import("rope");
 
-const alphabet = "abcdefg";
+const alphabet = "abcdefgáé→";
 
 pub const Options = struct {
     agents: u8,
@@ -25,12 +25,14 @@ pub const Cmd = struct {
 
 const Peer = struct {
     oplog: egwalker.OpLog,
-    len: u32 = 0,
+    // What the peer reads right now, to land edits between characters.
+    text: std.ArrayList(u8) = .empty,
     // The incremental path the editor uses: a branch kept in step with patches.
     branch: egwalker.Branch,
     doc: rope.Text,
 
-    fn deinit(self: *Peer) void {
+    fn deinit(self: *Peer, gpa: std.mem.Allocator) void {
+        self.text.deinit(gpa);
         self.oplog.deinit();
         self.branch.deinit();
         self.doc.deinit();
@@ -50,7 +52,7 @@ pub fn run(gpa: std.mem.Allocator, cmds: []const Cmd, opts: Options) !void {
     defer gpa.free(peers);
 
     var live: usize = 0;
-    defer for (peers[0..live]) |*peer| peer.deinit();
+    defer for (peers[0..live]) |*peer| peer.deinit(gpa);
 
     while (live < opts.agents) : (live += 1) {
         peers[live] = .{
@@ -65,18 +67,25 @@ pub fn run(gpa: std.mem.Allocator, cmds: []const Cmd, opts: Options) !void {
         const peer = &peers[index];
         switch (cmd.kind) {
             .insert => {
-                const pos = if (peer.len == 0) 0 else cmd.pos % (peer.len + 1);
-                const char = alphabet[cmd.char % alphabet.len..][0..1];
+                const len: u32 = @intCast(peer.text.items.len);
+                const pos = boundary(peer.text.items, if (len == 0) 0 else cmd.pos % (len + 1));
+                var buf: [4]u8 = undefined;
+                const char = buf[0..try std.unicode.utf8Encode(charAt(cmd.char), &buf)];
                 try peer.oplog.insert(pos, char);
-                peer.len += 1;
+                try peer.text.insertSlice(gpa, pos, char);
                 if (opts.log) std.debug.print("peers[{d}].insert({d}, \"{s}\");\n", .{ index, pos, char });
             },
             .delete => {
-                if (peer.len == 0) continue;
-                const pos = cmd.pos % peer.len;
-                const count = @min(@as(u32, cmd.count % 4) + 1, peer.len - pos);
+                const len: u32 = @intCast(peer.text.items.len);
+                if (len == 0) continue;
+                const pos = boundary(peer.text.items, cmd.pos % len);
+                // One to four whole characters, however many bytes that is.
+                var end = pos;
+                var chars = cmd.count % 4 + 1;
+                while (chars > 0 and end < len) : (chars -= 1) end += try std.unicode.utf8ByteSequenceLength(peer.text.items[end]);
+                const count = end - pos;
                 try peer.oplog.delete(pos, count);
-                peer.len -= count;
+                peer.text.replaceRangeAssumeCapacity(pos, count, &.{});
                 if (opts.log) std.debug.print("peers[{d}].delete({d}, {d});\n", .{ index, pos, count });
             },
             .merge => {
@@ -89,7 +98,8 @@ pub fn run(gpa: std.mem.Allocator, cmds: []const Cmd, opts: Options) !void {
                     try syncOverWire(gpa, peer, other);
                 }
                 try peer.catchUp();
-                peer.len = peer.doc.len();
+                peer.text.deinit(gpa);
+                peer.text = .fromOwnedSlice(try peer.doc.toBytes(gpa));
                 if (opts.log) std.debug.print("peers[{d}].mergeFrom(peers[{d}]);\n", .{ index, other_index });
             },
         }
@@ -107,6 +117,7 @@ pub fn run(gpa: std.mem.Allocator, cmds: []const Cmd, opts: Options) !void {
 
     const expected = try replay(gpa, &peers[0].oplog, opts);
     defer gpa.free(expected);
+    if (!std.unicode.utf8ValidateSlice(expected)) return error.SplitCharacter;
 
     for (peers) |*peer| {
         const text = try replay(gpa, &peer.oplog, opts);
@@ -227,4 +238,22 @@ fn syncOverWire(gpa: std.mem.Allocator, dest: *Peer, src: *const Peer) !void {
     defer gpa.free(bytes);
 
     try dest.oplog.applyWire(bytes);
+}
+
+fn boundary(text: []const u8, pos: u32) u32 {
+    var at = pos;
+    while (at < text.len and text[at] & 0xc0 == 0x80) at -= 1;
+    return at;
+}
+
+fn charAt(index: u8) u21 {
+    var view = std.unicode.Utf8View.initUnchecked(alphabet);
+    var chars = view.iterator();
+    var count: u8 = 0;
+    while (chars.nextCodepoint()) |_| count += 1;
+
+    chars = view.iterator();
+    var skip = index % count;
+    while (skip > 0) : (skip -= 1) _ = chars.nextCodepoint();
+    return chars.nextCodepoint().?;
 }

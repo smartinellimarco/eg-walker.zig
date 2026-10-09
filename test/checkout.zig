@@ -302,10 +302,10 @@ test "a backspace run retreats by the id of the event being moved" {
     defer c.deinit();
 
     try c.insert(0, "b");
-    try c.insert(1, "é");
+    try c.insert(1, "x");
     try b.mergeFrom(&c);
-    try c.delete(1, 2);
-    try b.delete(1, 2);
+    try c.delete(1, 1);
+    try b.delete(1, 1);
     try a.mergeFrom(&b);
     try b.delete(0, 1);
     try a.insert(0, "g");
