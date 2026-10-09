@@ -5,7 +5,7 @@ const item_tree = @import("item_tree.zig");
 const Lv = causal_graph.Lv;
 const none = causal_graph.none;
 
-// Characters live in run-length encoded items, so a position in the sequence is
+// Bytes live in run-length encoded items, so a position in the sequence is
 // an item's rank plus an offset inside it.
 const Key = u64;
 
@@ -14,7 +14,7 @@ fn keyOf(tree: *item_tree.Tree, id: Lv) Key {
     return (@as(Key, tree.rankOf(loc)) << 32) | (id - tree.item(loc).lv);
 }
 
-// Ranks are only worth computing when two different characters have to be
+// Ranks are only worth computing when two different bytes have to be
 // ordered; equal ids and the ends of the document answer themselves.
 fn orderOrigins(tree: *item_tree.Tree, a: Lv, b: Lv, missing: std.math.Order) std.math.Order {
     if (a == b) return .eq;

@@ -48,7 +48,7 @@ const Buffer = struct {
 };
 ```
 
-Positions are unicode character offsets, in both directions.
+Positions are byte offsets, in both directions.
 
 ```zig
 var oplog: egwalker.OpLog = .init(gpa, .{ .agent = try egwalker.agent.randomId(io) });

@@ -21,10 +21,9 @@ pub const Run = struct {
     pos: u32,
     // Typing and forward deletes run one way, backspace the other.
     fwd: bool,
-    // Byte range of the inserted text, which is stored as UTF-8 so a patch is a
-    // copy rather than a re-encoding.
+    // Where the inserted text starts, stored as UTF-8 so a patch is a copy rather
+    // than a re-encoding.
     content_start: u32,
-    content_bytes: u32 = 0,
 
     pub fn lvEnd(self: Run) Lv {
         return self.lv + self.len;
@@ -44,8 +43,7 @@ pub const Run = struct {
             .insert => {
                 if (!a.fwd or !b.fwd) return false;
                 if (b.pos != a.pos + a.len) return false;
-                if (b.content_start != a.content_start + a.content_bytes) return false;
-                a.content_bytes += b.content_bytes;
+                if (b.content_start != a.content_start + a.len) return false;
             },
             // A run of one event has not committed to a direction yet, so it can
             // still turn out to be the start of a backspace run. A longer run
@@ -112,7 +110,7 @@ pub const OpLog = struct {
     /// Records an edit made by `id` on top of an arbitrary version, which is
     /// what replaying a recorded session or an explicit branch needs.
     pub fn insertAt(self: *OpLog, id: agent.Id, parents: []const Lv, pos: u32, text: []const u8) !causal_graph.Range {
-        const count: u32 = @intCast(try std.unicode.utf8CountCodepoints(text));
+        const count: u32 = @intCast(text.len);
         if (count == 0) return .{ .start = self.len(), .end = self.len() };
 
         const content_start: u32 = @intCast(self.content.items.len);
@@ -127,7 +125,6 @@ pub const OpLog = struct {
             .pos = pos,
             .fwd = true,
             .content_start = content_start,
-            .content_bytes = @intCast(text.len),
         });
         return range;
     }
@@ -208,14 +205,9 @@ pub const OpLog = struct {
         return self.runContaining(lv).kind;
     }
 
-    /// The inserted text of `count` characters of `run`, starting `offset`
-    /// characters in.
+    /// The inserted text of `count` bytes of `run`, starting `offset` bytes in.
     pub fn contentOf(self: OpLog, run: Run, offset: u32, count: u32) []const u8 {
-        const all = self.content.items[run.content_start..][0..run.content_bytes];
-        if (offset == 0 and count == run.len) return all;
-
-        const from = byteOffset(all, offset);
-        return all[from..][0..byteOffset(all[from..], count)];
+        return self.content.items[run.content_start + offset ..][0..count];
     }
 
     /// Adds events received from another replica at already assigned local
@@ -234,7 +226,6 @@ pub const OpLog = struct {
             .pos = pos,
             .fwd = fwd,
             .content_start = content_start,
-            .content_bytes = @intCast(text.len),
         });
     }
 
@@ -323,18 +314,6 @@ pub const OpLog = struct {
     }
 };
 
-/// Byte offset of the `count`-th character.
-fn byteOffset(text: []const u8, count: u32) u32 {
-    var seen: u32 = 0;
-    var at: u32 = 0;
-    while (at < text.len) : (at += 1) {
-        if (text[at] & 0xc0 == 0x80) continue;
-        if (seen == count) return at;
-        seen += 1;
-    }
-    return @intCast(text.len);
-}
-
 const testing = std.testing;
 
 test "typing collapses into a single run" {
@@ -373,14 +352,14 @@ test "forward deletes keep the same index" {
     try testing.expectEqual(@as(u32, 1), oplog.opAt(7).pos);
 }
 
-test "multi byte characters count as one op each" {
+test "multi byte characters count as one op per byte" {
     var oplog: OpLog = .init(testing.allocator, .{ .agent = 1 });
     defer oplog.deinit();
 
     try oplog.insert(0, "héllo→");
 
-    try testing.expectEqual(@as(Lv, 6), oplog.len());
-    try testing.expectEqualStrings("→", oplog.opAt(5).content);
+    try testing.expectEqual(@as(Lv, 9), oplog.len());
+    try testing.expectEqualStrings("\xe2", oplog.opAt(6).content);
 }
 
 test "merge copies only what the other replica has" {

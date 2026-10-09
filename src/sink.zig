@@ -9,7 +9,7 @@ pub const Sink = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        /// Positions are characters, and the text is utf-8.
+        /// Positions are byte offsets, and the text is utf-8.
         insert: *const fn (ptr: *anyopaque, pos: u32, text: []const u8) Error!void,
         delete: *const fn (ptr: *anyopaque, pos: u32, count: u32) void,
     };

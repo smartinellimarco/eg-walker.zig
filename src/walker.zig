@@ -46,7 +46,7 @@ pub const Patch = struct {
         self.cursor = 0;
     }
 
-    /// How much the document grows or shrinks, in characters.
+    /// How much the document grows or shrinks, in bytes.
     pub fn docDelta(self: Patch) i64 {
         var delta: i64 = 0;
         for (self.raw.items) |op| switch (op) {
@@ -78,7 +78,7 @@ pub const Patch = struct {
     pub fn pushDeleteRun(self: *Patch, pos: u32, count: u32) !void {
         if (self.raw.items.len > 0) {
             switch (self.raw.items[self.raw.items.len - 1]) {
-                // Deleting consecutive characters keeps hitting the same index.
+                // Deleting consecutive bytes keeps hitting the same index.
                 .delete => |*last| {
                     if (last.pos == pos) {
                         last.len += count;

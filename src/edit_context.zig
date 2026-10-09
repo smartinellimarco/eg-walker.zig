@@ -8,7 +8,7 @@ const walker = @import("walker.zig");
 const Lv = causal_graph.Lv;
 const none = causal_graph.none;
 
-/// Which character a run of delete events removed. Deleting a word is one
+/// Which byte a run of delete events removed. Deleting a word is one
 /// entry, not one per letter.
 const Deleted = struct {
     lv: Lv,
@@ -66,7 +66,7 @@ pub const EditContext = struct {
     }
 
     /// Retreats a whole range at once. Events are taken from the end so items
-    /// are undeleted before they are un-inserted, and runs of characters typed
+    /// are undeleted before they are un-inserted, and runs of bytes typed
     /// together move as one item instead of being shattered.
     pub fn retreatRange(self: *EditContext, oplog: *const oplog_mod.OpLog, range: causal_graph.Range) !void {
         var lv = range.end;
@@ -88,9 +88,9 @@ pub const EditContext = struct {
     fn shift(self: *EditContext, oplog: *const oplog_mod.OpLog, first: Lv, last: Lv, delta: i32) !u32 {
         const lv = if (delta < 0) last else first;
 
-        // Insert events stand for the character they made; delete events point
+        // Insert events stand for the byte they made; delete events point
         // at one through the run that recorded them. A backspace run numbers its
-        // characters the other way round, so the event being moved is the
+        // bytes the other way round, so the event being moved is the
         // anchor, not either end of the range.
         var ids: causal_graph.Range = .{ .start = first, .end = last + 1 };
         var target = lv;
@@ -105,7 +105,7 @@ pub const EditContext = struct {
         var loc = self.tree.locOfId(target);
         var item = self.tree.item(loc);
 
-        // Trim the item down to the characters this range covers.
+        // Trim the item down to the bytes this range covers.
         const item_end = item.lv + item.run_len;
         if (item_end > ids.end) {
             try self.tree.splitAt(loc, ids.end - item.lv);
@@ -190,7 +190,7 @@ pub const EditContext = struct {
             self.tree.markDeleted(cursor.loc);
             try self.tree.indexEveryId(cursor.loc);
 
-            // Event i of a forward run deletes the i-th character of the range,
+            // Event i of a forward run deletes the i-th byte of the range,
             // of a backspace run the other way around.
             try self.del_targets.append(self.gpa, .{
                 .lv = if (fwd) lv + (count - remaining) else lv + remaining - take,
@@ -230,7 +230,7 @@ pub const EditContext = struct {
         integrate_mod.integrate(&self.tree, oplog.cg, first, &cursor);
         const placed = try self.tree.insertAt(cursor.loc, first);
 
-        // The rest of the run follows the first character with nothing able to
+        // The rest of the run follows the first byte with nothing able to
         // come between them, so they need no integration of their own.
         if (count > 1) {
             const rest: item_tree.Item = .{

@@ -51,7 +51,6 @@ const DecodedRun = struct {
     len: u32,
     pos: u32,
     content_start: u32,
-    content_bytes: u32,
 
     fn posAt(self: DecodedRun, offset: u32) u32 {
         return switch (self.kind) {
@@ -63,23 +62,9 @@ const DecodedRun = struct {
     fn textAt(self: DecodedRun, content: []const u8, offset: u32, count: u32) []const u8 {
         if (self.kind == .delete) return "";
 
-        const all = content[self.content_start..][0..self.content_bytes];
-        const from = byteOffset(all, offset);
-        return all[from..][0..byteOffset(all[from..], count)];
+        return content[self.content_start + offset ..][0..count];
     }
 };
-
-/// Byte offset of the `count`-th character.
-fn byteOffset(text: []const u8, count: u32) u32 {
-    var seen: u32 = 0;
-    var at: u32 = 0;
-    while (at < text.len) : (at += 1) {
-        if (text[at] & 0xc0 == 0x80) continue;
-        if (seen == count) return at;
-        seen += 1;
-    }
-    return @intCast(text.len);
-}
 
 /// Encodes the given local version ranges so another replica can merge them.
 /// Parents are written as (agent, seq) because local versions mean nothing to
@@ -159,7 +144,6 @@ pub fn encode(gpa: std.mem.Allocator, oplog: *const oplog_mod.OpLog, ranges: []c
 
             try varint.write(gpa, &ops, end - lv);
             try ops.append(gpa, @as(u8, @intFromEnum(run.kind)) | (@as(u8, @intFromBool(run.fwd)) << 1));
-            try varint.write(gpa, &ops, text.len);
             try varint.write(gpa, &ops, varint.zigzag(@as(i64, pos) - prev_pos));
             prev_pos = pos;
             run_count += 1;
@@ -400,19 +384,18 @@ fn decodeRuns(gpa: std.mem.Allocator, ops: SectionData) !std.ArrayList(DecodedRu
     while (remaining > 0) : (remaining -= 1) {
         const len = try reader.readInt(u32);
         const flags = (try reader.take(1))[0];
-        const bytes = try reader.readInt(u32);
         const pos: u32 = @intCast(prev_pos + varint.unzigzag(try reader.read()));
         prev_pos = pos;
 
+        const kind: oplog_mod.OpKind = @enumFromInt(flags & 1);
         try runs.append(gpa, .{
-            .kind = @enumFromInt(flags & 1),
+            .kind = kind,
             .fwd = flags & 2 != 0,
             .len = len,
             .pos = pos,
             .content_start = content_start,
-            .content_bytes = bytes,
         });
-        content_start += bytes;
+        if (kind == .insert) content_start += len;
     }
 
     return runs;
@@ -425,7 +408,7 @@ test "an oplog round trips through the wire format" {
     defer a.deinit();
 
     try a.insert(0, "hola qué tal→");
-    try a.backspace(12, 3);
+    try a.backspace(15, 5);
     try a.delete(0, 2);
     try a.insert(0, "¿");
 

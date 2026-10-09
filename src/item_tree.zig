@@ -44,7 +44,7 @@ pub const Item = struct {
         };
     }
 
-    // Typing produces runs where each character's left origin is the one before
+    // Typing produces runs where each byte's left origin is the one before
     // it, which is exactly when a run can hold them all as one item.
     fn tryAppend(a: *Item, b: Item) bool {
         if (a.cur_state != b.cur_state or a.ever_deleted != b.ever_deleted) return false;
@@ -107,7 +107,7 @@ pub const Cursor = struct {
 };
 
 /// The order statistic tree of the paper: a B-tree over run-length encoded
-/// items where every branch knows how many characters its subtree holds in the
+/// items where every branch knows how many bytes its subtree holds in the
 /// prepare version and in the effect version. Items themselves never move, so
 /// ids can point straight at them.
 pub const Tree = struct {
@@ -118,15 +118,15 @@ pub const Tree = struct {
     root: *Node,
     store: std.ArrayList(Item) = .empty,
     // Event ids run from `base` upwards without gaps, so the item holding each
-    // one is a plain lookup. Splits only ever push characters to the right, so
+    // one is a plain lookup. Splits only ever push bytes to the right, so
     // a stale entry is repaired by walking on.
     owners: std.ArrayList(u32) = .empty,
     base: Lv = 0,
-    // Placeholder characters get ids from the top of the space downwards. Only
+    // Placeholder bytes get ids from the top of the space downwards. Only
     // the ones that are actually pointed at get an entry, because a placeholder
     // can be as long as the whole document.
     locals: std.AutoHashMapUnmanaged(Lv, u32) = .empty,
-    // Placeholders and characters deleted out of them need ids no event will
+    // Placeholders and bytes deleted out of them need ids no event will
     // ever use, so they are handed out from the top downwards.
     local_next: Lv = none,
 
@@ -170,7 +170,7 @@ pub const Tree = struct {
         return loc.idx >= loc.leaf.len;
     }
 
-    /// Whether the character at `loc` is visible in the prepare version, without
+    /// Whether the byte at `loc` is visible in the prepare version, without
     /// reading the item itself.
     pub fn visible(self: *Tree, loc: Loc) bool {
         _ = self;
@@ -327,7 +327,7 @@ pub const Tree = struct {
         return .{ .leaf = leaf, .idx = idx };
     }
 
-    /// Splits whatever run holds `id` until that character is an item of its
+    /// Splits whatever run holds `id` until that byte is an item of its
     /// own, and returns where it sits.
     pub fn isolate(self: *Tree, id: Lv) !Loc {
         var loc = self.locOfId(id);
@@ -345,7 +345,7 @@ pub const Tree = struct {
         return loc;
     }
 
-    /// The id of the last character before `loc`.
+    /// The id of the last byte before `loc`.
     pub fn idLeftOf(self: *Tree, loc: Loc) Lv {
         const previous = self.prevLoc(loc) orelse return none;
         const left = self.item(previous);
@@ -388,7 +388,7 @@ pub const Tree = struct {
         var tail = head.*;
         tail.lv += offset;
         tail.run_len -= offset;
-        // Inside a run every character's left origin is the one before it.
+        // Inside a run every byte's left origin is the one before it.
         tail.origin_left = head.lv + offset - 1;
 
         const before = head.counts();
@@ -403,7 +403,7 @@ pub const Tree = struct {
         const placed = try self.insertRaw(.{ .leaf = loc.leaf, .idx = loc.idx + 1 }, tail);
 
         self.indexIds(tail, placed.leaf.items[placed.idx]);
-        // The head keeps its own entries, but its last character is a boundary now.
+        // The head keeps its own entries, but its last byte is a boundary now.
         self.remember(tail.lv - 1, head_stored);
     }
 
@@ -446,7 +446,7 @@ pub const Tree = struct {
         }
     }
 
-    /// Every character of a run becomes findable. Deletes need this: the events
+    /// Every byte of a run becomes findable. Deletes need this: the events
     /// that removed them are replayed one id at a time.
     pub fn indexEveryId(self: *Tree, loc: Loc) !void {
         const target = self.item(loc).*;
@@ -650,7 +650,7 @@ test "counts survive node splits" {
 
     var loc = tree.start();
     var lv: Lv = 0;
-    // Right parents that differ keep every character in its own item.
+    // Right parents that differ keep every byte in its own item.
     while (lv < 200) : (lv += 1) {
         loc = tree.nextLoc(try tree.insertAt(loc, .{ .lv = lv, .right_parent = lv }));
     }
@@ -674,7 +674,7 @@ test "counts survive node splits" {
     try testing.expectEqual(@as(u32, 199), tree.root.total().effect);
 }
 
-test "a long run splits into three around one character" {
+test "a long run splits into three around one byte" {
     var tree = try Tree.init(testing.allocator);
     defer tree.deinit();
 

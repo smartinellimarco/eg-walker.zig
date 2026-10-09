@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .rope = .{
-            .url = "git+https://github.com/smartinellimarco/rope.zig#de03598691b5ab9f0fbae991fa382f9441c22a87",
-            .hash = "rope-0.0.0-HUqHwJhnAAAWB3D9Em65D4olYzTirytNLgKzavmo4ko0",
+            .url = "git+https://github.com/smartinellimarco/rope.zig#709a72bbcedbcfa1cd4ffc3b2134db94eecfdaa7",
+            .hash = "rope-0.0.0-HUqHwBRhAADheQUkvTOs0Sa_UgMDzm55FurT6MP36vyV",
             .lazy = true,
         },
     },

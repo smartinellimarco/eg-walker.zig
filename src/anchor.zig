@@ -12,8 +12,7 @@ pub fn map(pos: u32, bias: Bias, patch: *walker.Patch) u32 {
     patch.reset();
     while (patch.next()) |op| switch (op) {
         .insert => |ins| {
-            const count: u32 = @intCast(std.unicode.utf8CountCodepoints(ins.text) catch unreachable);
-            if (ins.pos < at or (ins.pos == at and bias == .after)) at += count;
+            if (ins.pos < at or (ins.pos == at and bias == .after)) at += @intCast(ins.text.len);
         },
         .delete => |del| {
             if (del.pos + del.len <= at) {
@@ -34,11 +33,7 @@ fn patchWith(gpa: std.mem.Allocator, ops: []const walker.TransformedOp) !walker.
     errdefer patch.deinit();
 
     for (ops) |op| switch (op) {
-        .insert => |ins| try patch.pushInsertRun(
-            ins.pos,
-            @intCast(try std.unicode.utf8CountCodepoints(ins.text)),
-            ins.text,
-        ),
+        .insert => |ins| try patch.pushInsertRun(ins.pos, @intCast(ins.text.len), ins.text),
         .delete => |del| try patch.pushDeleteRun(del.pos, del.len),
     };
 

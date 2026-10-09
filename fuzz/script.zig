@@ -2,7 +2,7 @@ const std = @import("std");
 const egwalker = @import("egwalker");
 const rope = @import("rope");
 
-const alphabet = "abcdefgáé→";
+const alphabet = "abcdefg";
 
 pub const Options = struct {
     agents: u8,
@@ -66,11 +66,10 @@ pub fn run(gpa: std.mem.Allocator, cmds: []const Cmd, opts: Options) !void {
         switch (cmd.kind) {
             .insert => {
                 const pos = if (peer.len == 0) 0 else cmd.pos % (peer.len + 1);
-                var buf: [4]u8 = undefined;
-                const encoded = try std.unicode.utf8Encode(charAt(cmd.char), &buf);
-                try peer.oplog.insert(pos, buf[0..encoded]);
+                const char = alphabet[cmd.char % alphabet.len..][0..1];
+                try peer.oplog.insert(pos, char);
                 peer.len += 1;
-                if (opts.log) std.debug.print("peers[{d}].insert({d}, \"{s}\");\n", .{ index, pos, buf[0..encoded] });
+                if (opts.log) std.debug.print("peers[{d}].insert({d}, \"{s}\");\n", .{ index, pos, char });
             },
             .delete => {
                 if (peer.len == 0) continue;
@@ -228,16 +227,4 @@ fn syncOverWire(gpa: std.mem.Allocator, dest: *Peer, src: *const Peer) !void {
     defer gpa.free(bytes);
 
     try dest.oplog.applyWire(bytes);
-}
-
-fn charAt(index: u8) u21 {
-    var view = std.unicode.Utf8View.initUnchecked(alphabet);
-    var chars = view.iterator();
-    var count: u8 = 0;
-    while (chars.nextCodepoint()) |_| count += 1;
-
-    chars = view.iterator();
-    var skip = index % count;
-    while (skip > 0) : (skip -= 1) _ = chars.nextCodepoint();
-    return chars.nextCodepoint().?;
 }

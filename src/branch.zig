@@ -95,7 +95,7 @@ pub const Branch = struct {
             var index = oplog.runIndexContaining(v);
             while (v < end) : (index += 1) {
                 // Whole runs pass through at once: with no transformation to do,
-                // a typed word is one operation, not one per character.
+                // a typed word is one operation, not one per byte.
                 const run = oplog.runAt(index);
                 const offset = v - run.lv;
                 const take = @min(run.lvEnd(), end) - v;
